@@ -121,7 +121,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # Cruza com a base mantendo rigorosamente a ordem em que você digitou na tela
+    # Cruza com o banco de dados mantendo a ordem exata das linhas digitadas
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
     def cad_real(row):
@@ -221,11 +221,19 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     else:
         termino = "Não iniciado"
 
+    # Captura os modelos que realmente ficaram com saldo pendente maior que zero
+    df_sobras = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy()
+    if not df_sobras.empty:
+        df_sobras = df_sobras.groupby('ID', as_index=False)['FALTA'].sum()
+        df_sobras['FALTA'] = df_sobras['FALTA'].astype(int)
+        df_sobras = df_sobras[df_sobras['FALTA'] > 0].reset_index(drop=True)
+
     return {
         "df":        pd.DataFrame(res),
         "tot":       tot,
         "total_ped": total_ped,
-        "termino":   termino
+        "termino":   termino,
+        "sobras":    df_sobras
     }
 
 
@@ -288,7 +296,7 @@ if not base.empty:
     if st.button("🚀 Gerar Planejamento"):
         st.session_state['paradas_limpas'] = False
         
-        # Filtro de proteção contra linhas em branco do Streamlit
+        # Filtragem rigorosa contra linhas em branco do Streamlit para o cálculo total não mentir
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
@@ -302,10 +310,15 @@ if not base.empty:
             c1.metric("Total Produzido", f"{r['tot']} pçs")
             c2.metric("Horário da Última Peça", r["termino"])
 
-            # --- CHECAGEM MATEMÁTICA PURA E DIRETA CONTRA O ACUMULADO REAL DO DIA ---
+            # --- NOVA REGRA MATEMÁTICA PURA E INFALÍVEL CONTRA AS SOBRAS REAIS ---
             if r['tot'] < r['total_ped']:
                 faltam = r['total_ped'] - r['tot']
                 st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
+                
+                # Mostra o modelo e a quantidade exata que ficou devendo
+                if 'sobras' in r and not r['sobras'].empty:
+                    st.subheader("🛑 Itens Não Finalizados (Pendências)")
+                    st.dataframe(r['sobras'].rename(columns={'ID': 'Modelo Pendente', 'FALTA': 'Qtd Restante'}), use_container_width=True)
             else:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
 
