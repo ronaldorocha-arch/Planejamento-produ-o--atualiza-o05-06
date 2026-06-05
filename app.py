@@ -80,7 +80,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_gin_f  = para_min("09:40")
     m_ini    = para_min(h_ini)
 
-    # Processa a lista de paradas customizadas informadas pelo usuário
     paradas_customizadas = []
     if df_paradas is not None and not df_paradas.empty:
         for _, row in df_paradas.iterrows():
@@ -130,7 +129,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
         motivos_parada_do_bloco = []
 
         for m in range(p1, p2):
-            # Verifica primeiro se o minuto cai em alguma parada customizada da tela
             foi_parada_custom = False
             for pc in paradas_customizadas:
                 if pc["ini"] <= m < pc["fim"]:
@@ -142,7 +140,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             if foi_parada_custom:
                 continue
 
-            # Se não caiu em parada customizada, checa as paradas padrão de fábrica
             if not (
                 (m_cafe_m <= m < m_cafe_m + 10)
                 or (m_cafe_t <= m < m_cafe_t + 10)
@@ -151,7 +148,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             ):
                 mins_uteis.append(m)
 
-        # Se o bloco inteiro de horário virou uma parada informada na tela
         if len(mins_uteis) == 0 and motivos_parada_do_bloco:
             res.append({
                 "Horário": f"{pontos[p]} – {pontos[p+1]}",
@@ -164,7 +160,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
         p_h = 0
         m_n = []  
 
-        # Se houver paradas parciais dentro do bloco, adiciona o aviso no texto informativo
         if motivos_parada_do_bloco:
             m_n.append(f"[{' + '.join(motivos_parada_do_bloco).upper()}]")
 
@@ -190,7 +185,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
                         qtd_ant   = int(m_n[-1].split("(")[1].rstrip(")"))
                         m_n[-1]   = f"{nome} ({qtd_ant + 1})"
                     elif m_n and m_n[-1].startswith("["):
-                        # Evita quebrar string se o primeiro item do bloco for a mensagem da parada
                         m_n.append(f"{nome} (1)")
                     else:
                         m_n.append(f"{nome} (1)")
@@ -250,17 +244,18 @@ if not base.empty:
     h_ini            = st.sidebar.text_input("Início da Produção", "07:45")
     n_dia            = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
 
-    # --- NOVO: Tabela na barra lateral para cadastrar Paradas Programadas Avançadas ---
     st.sidebar.write("---")
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+    
+    # CORRIGIDO: Removido o max_chars que causava incompatibilidade de tipo no Python recente
     df_p_ed = st.sidebar.data_editor(
         df_paradas_vazias,
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "Início": st.column_config.TextColumn("Início", placeholder="09:00", max_chars=5),
-            "Fim": st.column_config.TextColumn("Fim", placeholder="12:00", max_chars=5),
+            "Início": st.column_config.TextColumn("Início", placeholder="09:00"),
+            "Fim": st.column_config.TextColumn("Fim", placeholder="12:00"),
             "Motivo": st.column_config.TextColumn("Motivo", placeholder="Manutenção"),
         }
     )
@@ -286,7 +281,6 @@ if not base.empty:
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
-        # Limpeza rápida das paradas customizadas da barra lateral
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
 
         if not df_v.empty:
@@ -308,7 +302,6 @@ if not base.empty:
                 if "ALMOÇO" in celula_texto:
                     return ["background-color: #fff3cd"] * len(row)
                 if "🛑" in celula_texto or "-" in celula_texto and row["Peças"] == 0:
-                    # Aplica estilo visual cinza diferenciado para blocos inteiros parados
                     return ["background-color: #f8d7da; color: #721c24;font-weight: bold;"] * len(row)
                 return [""] * len(row)
 
