@@ -122,8 +122,10 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
             acum += 1
             while idx < len(df_in):
                 t_pc = df_in.loc[idx, 'T_PC']
-                if acum >= (t_pc - 0.001):
+                # Adicionado +0.1 de tolerância para corrigir arredondamento dos minutos quebrados
+                if (acum + 0.1) >= t_pc:
                     acum -= t_pc
+                    if acum < 0: acum = 0.0
                     df_in.loc[idx, 'FALTA'] -= 1
                     tot += 1
                     p_h += 1
@@ -162,7 +164,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    # Captura se há alguma falta estrita apenas para controle do aviso na tela
     tem_sobra = (df_in['FALTA'] > 0).any()
 
     return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'tem_sobra': tem_sobra}
@@ -211,7 +212,6 @@ if not base.empty:
             c1.metric("Total Produzido", f"{int(r['tot'])} pçs")
             c2.metric("Horário da Última Peça", r['termino'])
             
-            # --- EXIBE APENAS A MENSAGEM DE ERRO/SUCESSO SEM A TABELA ---
             if r['tem_sobra']:
                 st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil.")
             else:
