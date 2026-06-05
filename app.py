@@ -121,14 +121,15 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # --- TRAVA DE SEQUÊNCIA: Salva a ordem exata das linhas preenchidas por você na tela ---
-    df_in["ORDEM_ORIGINAL"] = range(len(df_in))
+    # --- CORREÇÃO DA SEQUÊNCIA CRÍTICA ---
+    # Criamos um índice numérico estrito da ordem exata em que digitou no ecrã
+    df_in["ORDEM_ESTRITA"] = range(len(df_in))
 
-    # Cruza com os dados da planilha
+    # Realiza o cruzamento trazendo as informações da base de dados
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left")
     
-    # Força a restauração da sequência original de cima para baixo digitada na tabela
-    df_in = df_in.sort_values(by="ORDEM_ORIGINAL").reset_index(drop=True)
+    # Força a reordenação exata baseada na ordem estrita definida por si, sem misturar linhas duplicadas
+    df_in = df_in.sort_values(by="ORDEM_ESTRITA").reset_index(drop=True)
 
     def cad_real(row):
         n_nom = MAPA_N_NATURAL.get(row["CEL_ORIGEM"], 5)
