@@ -121,6 +121,9 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
+    # --- CORREÇÃO DO CÁLCULO: Agrupa modelos repetidos antes do cruzamento de dados ---
+    df_in = df_in.groupby('Equipamento', as_index=False).sum()
+
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
     def cad_real(row):
@@ -290,11 +293,7 @@ if not base.empty:
     if st.button("🚀 Gerar Planejamento"):
         st.session_state['paradas_limpas'] = False
         
-        # --- FILTRO BLINDADO CONTRA LINHAS FANTASMAS ---
-        # Deleta qualquer linha do editor que não tenha um Modelo explicitamente preenchido
-        df_v = df_ed.dropna(subset=["Equipamento"])
-        df_v = df_v[df_v["Equipamento"].astype(str).str.strip() != ""]
-        df_v = df_v.dropna(subset=["Qtd"])
+        df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
