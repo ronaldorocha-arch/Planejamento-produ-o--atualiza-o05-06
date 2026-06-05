@@ -121,9 +121,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # --- CORREÇÃO DO CÁLCULO: Agrupa modelos repetidos antes do cruzamento de dados ---
-    df_in = df_in.groupby('Equipamento', as_index=False).sum()
-
+    # Recomposição da tabela cruzada limpando o índice
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
     def cad_real(row):
@@ -223,14 +221,11 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     else:
         termino = "Não iniciado"
 
-    tem_sobra = tot < total_ped
-
     return {
         "df":        pd.DataFrame(res),
         "tot":       tot,
         "total_ped": total_ped,
-        "termino":   termino,
-        "tem_sobra": tem_sobra,
+        "termino":   termino
     }
 
 
@@ -293,6 +288,7 @@ if not base.empty:
     if st.button("🚀 Gerar Planejamento"):
         st.session_state['paradas_limpas'] = False
         
+        # Limpeza cirúrgica contra linhas em branco/fantasmas na tabela de entrada
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
@@ -306,8 +302,10 @@ if not base.empty:
             c1.metric("Total Produzido", f"{r['tot']} pçs")
             c2.metric("Horário da Última Peça", r["termino"])
 
-            if r["tem_sobra"]:
-                faltam = r["total_ped"] - r["tot"]
+            # --- CORREÇÃO DEFINITIVA DA REGRA DA FAIXA ALERTA ---
+            # Checagem direta, limpa e infalível baseada nos totais reais calculados
+            if r['tot'] < r['total_ped']:
+                faltam = r['total_ped'] - r['tot']
                 st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
             else:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
