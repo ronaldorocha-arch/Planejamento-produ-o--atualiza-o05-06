@@ -124,20 +124,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
 
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
-    def calcular_total_restante(df_atual):
-        sobras_lista = []
-        for i_row in range(len(df_atual)):
-            qtd_resto = df_atual.loc[i_row, "FALTA"]
-            if qtd_resto > 0:
-                sobras_lista.append({
-                    "Modelo Pendente": df_atual.loc[i_row, "ID"],
-                    "Qtd Restante": int(qtd_resto)
-                })
-        if sobras_lista:
-            df_s = pd.DataFrame(sobras_lista)
-            return df_s.groupby("Modelo Pendente", as_index=False)["Qtd Restante"].sum()
-        return pd.DataFrame()
-
     def cad_real(row):
         n_nom = MAPA_N_NATURAL.get(row["CEL_ORIGEM"], 5)
         return (row["UNIDADE_HORA"] / n_nom) * n_dia
@@ -235,14 +221,11 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     else:
         termino = "Não iniciado"
 
-    df_sobras_finais = calcular_total_restante(df_in)
-
     return {
         "df":        pd.DataFrame(res),
         "tot":       tot,
         "total_ped": total_ped,
-        "termino":   termino,
-        "sobras":    df_sobras_finais
+        "termino":   termino
     }
 
 
@@ -279,7 +262,6 @@ if not base.empty:
         key=editor_key
     )
 
-    # --- CORREÇÃO DO BOTÃO DE LIMPAR: Limpa a visualização e reseta o painel central ---
     if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
         st.session_state['paradas_reset_key'] += 1
         st.session_state['resultado_planejamento'] = None
@@ -310,7 +292,6 @@ if not base.empty:
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
 
         if not df_v.empty:
-            # Salva o resultado gerado direto no session_state para controle total de exibição
             st.session_state['resultado_planejamento'] = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups, df_p_validas)
 
     # --- RENDERIZAÇÃO DO PAINEL PRINCIPAL ---
@@ -322,13 +303,10 @@ if not base.empty:
         c1.metric("Total Produzido", f"{r['tot']} pçs")
         c2.metric("Horário da Última Peça", r["termino"])
 
+        # --- AVISO DA META COMPATÍVEL ---
         if r['tot'] < r['total_ped']:
             faltam = r['total_ped'] - r['tot']
             st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
-            
-            if 'sobras' in r and not r['sobras'].empty:
-                st.subheader("🛑 Itens Não Finalizados (Pendências)")
-                st.dataframe(r['sobras'], use_container_width=True, hide_index=True)
         else:
             st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
 
