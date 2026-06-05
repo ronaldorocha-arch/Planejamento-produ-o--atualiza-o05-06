@@ -65,7 +65,15 @@ def carregar_base():
                     })
             except:
                 continue
-        return pd.DataFrame(lista_final)
+                
+        df_final = pd.DataFrame(lista_final)
+        
+        # --- BLOQUEIO DE DUPLICATAS DA PLANILHA ---
+        # Impede que cadastros repetidos no Google Sheets multipliquem os cálculos na tela
+        if not df_final.empty:
+            df_final = df_final.drop_duplicates(subset=["DISPLAY"]).reset_index(drop=True)
+            
+        return df_final
     except:
         return pd.DataFrame()
 
@@ -121,7 +129,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # Trava de sequência estrita
+    # Trava de sequência estrita e preservação de linhas
     df_in = df_in.reset_index(drop=True)
     df_in["ID_UNICO_PRODUCAO"] = range(len(df_in))
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left")
@@ -187,7 +195,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
 
             while idx < len(df_in):
                 t_pc = df_in.loc[idx, "T_PC"]
-                # ADICIONADO +0.1 DE TOLERÂNCIA NO ACÚMULO PARA CORRIGIR MINUTOS QUEBRADOS
                 if (acum + 0.1) >= t_pc - 0.001:
                     acum -= t_pc
                     if acum < 0:
@@ -221,7 +228,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     elif tot >= total_ped and ultimo_min is not None:
         termino = para_str(ultimo_min)
     elif ultimo_min is not None:
-        termino = f"{para_str(ultimo_min)}"
+        termino = f"{para_str(ultimo_min)} (Capacidade Máxima do Turno)"
     else:
         termino = "Não iniciado"
 
