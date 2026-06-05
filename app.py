@@ -22,7 +22,6 @@ MAPA_N_NATURAL = {
 if 'paradas_reset_key' not in st.session_state:
     st.session_state['paradas_reset_key'] = 0
 
-# Estado global para limpar os resultados da tela no momento do clique de limpar paradas
 if 'resultado_planejamento' not in st.session_state:
     st.session_state['resultado_planejamento'] = None
 
@@ -294,7 +293,6 @@ if not base.empty:
         if not df_v.empty:
             st.session_state['resultado_planejamento'] = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups, df_p_validas)
 
-    # --- RENDERIZAÇÃO DO PAINEL PRINCIPAL ---
     if st.session_state['resultado_planejamento'] is not None:
         r = st.session_state['resultado_planejamento']
         st.divider()
@@ -303,7 +301,7 @@ if not base.empty:
         c1.metric("Total Produzido", f"{r['tot']} pçs")
         c2.metric("Horário da Última Peça", r["termino"])
 
-        # --- AVISO DA META COMPATÍVEL ---
+        # --- VALIDADO: Mensagem inteligente sem falsas pendências ---
         if r['tot'] < r['total_ped']:
             faltam = r['total_ped'] - r['tot']
             st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
