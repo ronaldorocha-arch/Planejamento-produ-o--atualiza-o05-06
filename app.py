@@ -67,7 +67,7 @@ def carregar_base():
 def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     def para_min(s):
         try:
-            h, m = map(int, s.split(":"))
+            h, m = map(int, str(s).split(":"))
             return h * 60 + m
         except:
             return -1
@@ -83,9 +83,11 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     paradas_customizadas = []
     if df_paradas is not None and not df_paradas.empty:
         for _, row in df_paradas.iterrows():
+            if pd.isna(row["Início"]) or pd.isna(row["Fim"]):
+                continue
             ini_p = para_min(str(row["Início"]).strip())
             fim_p = para_min(str(row["Fim"]).strip())
-            motivo = str(row["Motivo"]).strip() if str(row["Motivo"]).strip() != "None" else "PARADA PROGRAMADA"
+            motivo = str(row["Motivo"]).strip() if not pd.isna(row["Motivo"]) and str(row["Motivo"]).strip() != "" and str(row["Motivo"]).strip().lower() != "nan" else "PARADA PROGRAMADA"
             if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
                 paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo})
 
@@ -248,16 +250,11 @@ if not base.empty:
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
     
-    # CORRIGIDO: Removido o max_chars que causava incompatibilidade de tipo no Python recente
+    # CORRIGIDO DEFINITIVAMENTE: Deixado o editor puro sem o column_config problemático do Python 3.14+
     df_p_ed = st.sidebar.data_editor(
         df_paradas_vazias,
         num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "Início": st.column_config.TextColumn("Início", placeholder="09:00"),
-            "Fim": st.column_config.TextColumn("Fim", placeholder="12:00"),
-            "Motivo": st.column_config.TextColumn("Motivo", placeholder="Manutenção"),
-        }
+        use_container_width=True
     )
 
     st.header(f"📋 Planejamento: {sel_ups}")
