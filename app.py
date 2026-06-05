@@ -19,9 +19,12 @@ MAPA_N_NATURAL = {
     "ACS - 01": 3,
 }
 
-# Cria um contador de reset na memória para limpar o editor sem travar o app
 if 'paradas_reset_key' not in st.session_state:
     st.session_state['paradas_reset_key'] = 0
+
+# Guarda na memória se as paradas foram limpas recentemente para forçar o cálculo correto
+if 'paradas_limpas' not in st.session_state:
+    st.session_state['paradas_limpas'] = False
 
 @st.cache_data(ttl=2)
 def carregar_base():
@@ -95,7 +98,8 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_ini    = para_min(h_ini)
 
     paradas_customizadas = []
-    if df_paradas is not None and not df_paradas.empty:
+    # Só processa paradas se a limpeza for falsa
+    if df_paradas is not None and not df_paradas.empty and not st.session_state['paradas_limpas']:
         for _, row in df_paradas.iterrows():
             if pd.isna(row["Início"]) or pd.isna(row["Fim"]):
                 continue
@@ -252,8 +256,6 @@ if not base.empty:
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     
     df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
-    
-    # Chave dinâmica combinada com o contador de resets garante limpeza instantânea e leve
     editor_key = f"paradas_editor_{st.session_state['paradas_reset_key']}"
     
     df_p_ed = st.sidebar.data_editor(
@@ -264,9 +266,10 @@ if not base.empty:
         key=editor_key
     )
 
-    # Botão de limpar otimizado: altera o estado interno sem causar lentidão no servidor
+    # CORREÇÃO: Força a limpeza total da memória para o aviso sumir de primeira
     if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
         st.session_state['paradas_reset_key'] += 1
+        st.session_state['paradas_limpas'] = True
         st.rerun()
 
     st.header(f"📋 Planejamento: {sel_ups}")
@@ -288,6 +291,9 @@ if not base.empty:
     )
 
     if st.button("🚀 Gerar Planejamento"):
+        # Se o usuário clicou para recalcular após limpar as paradas, desarma a trava
+        st.session_state['paradas_limpas'] = False
+        
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
@@ -323,3 +329,4 @@ if not base.empty:
             )
 else:
     st.error("⚠️ Base de dados não carregada. Verifique se a aba 'BASE' é a primeira da planilha.")
+    
