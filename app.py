@@ -64,10 +64,13 @@ def carregar_base():
         return pd.DataFrame()
 
 
-def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
+def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     def para_min(s):
-        h, m = map(int, s.split(":"))
-        return h * 60 + m
+        try:
+            h, m = map(int, s.split(":"))
+            return h * 60 + m
+        except:
+            return -1
 
     m_alm_i  = para_min("11:30")
     m_alm_f  = para_min("12:30")
@@ -76,6 +79,16 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     m_gin_i  = para_min("09:30")
     m_gin_f  = para_min("09:40")
     m_ini    = para_min(h_ini)
+
+    # Processa a lista de paradas customizadas informadas pelo usuário
+    paradas_customizadas = []
+    if df_paradas is not None and not df_paradas.empty:
+        for _, row in df_paradas.iterrows():
+            ini_p = para_min(str(row["Início"]).strip())
+            fim_p = para_min(str(row["Fim"]).strip())
+            motivo = str(row["Motivo"]).strip() if str(row["Motivo"]).strip() != "None" else "PARADA PROGRAMADA"
+            if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
+                paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo})
 
     marcos = ["08:30","09:30","10:30","11:30","12:30","13:30","14:30","15:30","16:30","17:30"]
     pontos = [h_ini] + [m for m in marcos if para_min(m) > m_ini]
@@ -93,7 +106,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     total_ped = int(df_in["FALTA"].sum())
 
     res   = []
-    acum  = 0.0   # acumulador persiste entre TODOS os slots do dia
+    acum  = 0.0   
     idx   = 0
     tot   = 0
     ultimo_min = None
@@ -113,26 +126,54 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
             continue
 
         # ---------- Minutos úteis do intervalo ----------
-        mins_uteis = [
-            m for m in range(p1, p2)
+        mins_uteis = []
+        motivos_parada_do_bloco = []
+
+        for m in range(p1, p2):
+            # Verifica primeiro se o minuto cai em alguma parada customizada da tela
+            foi_parada_custom = False
+            for pc in paradas_customizadas:
+                if pc["ini"] <= m < pc["fim"]:
+                    foi_parada_custom = True
+                    if pc["motivo"] not in motivos_parada_do_bloco:
+                        motivos_parada_do_bloco.append(pc["motivo"])
+                    break
+            
+            if foi_parada_custom:
+                continue
+
+            # Se não caiu em parada customizada, checa as paradas padrão de fábrica
             if not (
                 (m_cafe_m <= m < m_cafe_m + 10)
                 or (m_cafe_t <= m < m_cafe_t + 10)
                 or (m_alm_i  <= m < m_alm_f)
                 or (tem_gin and m_gin_i <= m < m_gin_f)
-            )
-        ]
+            ):
+                mins_uteis.append(m)
+
+        # Se o bloco inteiro de horário virou uma parada informada na tela
+        if len(mins_uteis) == 0 and motivos_parada_do_bloco:
+            res.append({
+                "Horário": f"{pontos[p]} – {pontos[p+1]}",
+                "Modelos": f"🛑 " + " + ".join(motivos_parada_do_bloco).upper(),
+                "Peças": 0,
+                "Acum": int(tot),
+            })
+            continue
 
         p_h = 0
-        m_n = []  # lista de strings "MODELO (qtd)" para este slot
+        m_n = []  
+
+        # Se houver paradas parciais dentro do bloco, adiciona o aviso no texto informativo
+        if motivos_parada_do_bloco:
+            m_n.append(f"[{' + '.join(motivos_parada_do_bloco).upper()}]")
 
         for m_util in mins_uteis:
             if idx >= len(df_in):
                 break
 
-            acum += 1.0  # cada minuto útil vale 1 minuto de trabalho
+            acum += 1.0  
 
-            # tenta produzir 1 ou mais peças dentro deste minuto
             while idx < len(df_in):
                 t_pc = df_in.loc[idx, "T_PC"]
                 if (acum + 0.1) >= t_pc - 0.001:
@@ -148,13 +189,16 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
                     if m_n and m_n[-1].startswith(nome + " ("):
                         qtd_ant   = int(m_n[-1].split("(")[1].rstrip(")"))
                         m_n[-1]   = f"{nome} ({qtd_ant + 1})"
+                    elif m_n and m_n[-1].startswith("["):
+                        # Evita quebrar string se o primeiro item do bloco for a mensagem da parada
+                        m_n.append(f"{nome} (1)")
                     else:
                         m_n.append(f"{nome} (1)")
 
                     if df_in.loc[idx, "FALTA"] <= 0:
                         idx += 1
                 else:
-                    break  # acum ainda insuficiente; passa para o próximo minuto
+                    break  
 
         res.append({
             "Horário": f"{pontos[p]} – {pontos[p+1]}",
@@ -167,9 +211,13 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     if total_ped == 0:
         termino = "Sem demanda"
     elif tot >= total_ped and ultimo_min is not None:
-        termino = f"{ultimo_min // 60:02d}:{ultimo_min % 60:02d}"
+        h_fim = ultimo_min // 60
+        m_fim = ultimo_min % 60
+        termino = f"{h_fim:02d}:{m_fim:02d}"
     elif ultimo_min is not None:
-        termino = f"{ultimo_min // 60:02d}:{ultimo_min % 60:02d} (Capacidade Máxima do Turno)"
+        h_fim = ultimo_min // 60
+        m_fim = ultimo_min % 60
+        termino = f"{h_fim:02d}:{m_fim:02d} (Capacidade Máxima do Turno)"
     else:
         termino = "Não iniciado"
 
@@ -202,12 +250,26 @@ if not base.empty:
     h_ini            = st.sidebar.text_input("Início da Produção", "07:45")
     n_dia            = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
 
+    # --- NOVO: Tabela na barra lateral para cadastrar Paradas Programadas Avançadas ---
+    st.sidebar.write("---")
+    st.sidebar.markdown("### 🛑 Paradas Programadas")
+    df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+    df_p_ed = st.sidebar.data_editor(
+        df_paradas_vazias,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Início": st.column_config.TextColumn("Início", placeholder="09:00", max_chars=5),
+            "Fim": st.column_config.TextColumn("Fim", placeholder="12:00", max_chars=5),
+            "Motivo": st.column_config.TextColumn("Motivo", placeholder="Manutenção"),
+        }
+    )
+
     st.header(f"📋 Planejamento: {sel_ups}")
 
     if liberar_modelos:
         opcoes = sorted(base["DISPLAY"].tolist())
     else:
-        # CORRIGIDO: Aspas duplas ajustadas aqui
         opcoes = sorted(base[base["CEL_ORIGEM"] == sel_ups]["DISPLAY"].tolist())
 
     df_ed = st.data_editor(
@@ -224,8 +286,11 @@ if not base.empty:
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
+        # Limpeza rápida das paradas customizadas da barra lateral
+        df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
+
         if not df_v.empty:
-            r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups)
+            r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups, df_p_validas)
             st.divider()
 
             c1, c2 = st.columns(2)
@@ -239,8 +304,12 @@ if not base.empty:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
 
             def style_almoco(row):
-                if "ALMOÇO" in str(row["Modelos"]):
+                celula_texto = str(row["Modelos"])
+                if "ALMOÇO" in celula_texto:
                     return ["background-color: #fff3cd"] * len(row)
+                if "🛑" in celula_texto or "-" in celula_texto and row["Peças"] == 0:
+                    # Aplica estilo visual cinza diferenciado para blocos inteiros parados
+                    return ["background-color: #f8d7da; color: #721c24;font-weight: bold;"] * len(row)
                 return [""] * len(row)
 
             st.subheader("📅 Cronograma Detalhado por Hora")
