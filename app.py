@@ -153,19 +153,17 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     if total_ped == 0:
         termino = "Sem demanda"
     elif tot >= total_ped and ultimo_minuto_produzido is not None:
-        # Terminou tudo dentro do tempo
         h_fim = ultimo_minuto_produzido // 60
         m_fim = ultimo_minuto_produzido % 60
         termino = f"{h_fim:02d}:{m_fim:02d}"
     elif tot > 0 and ultimo_minuto_produzido is not None:
-        # Acabou o tempo da fábrica mas produziu alguma coisa
         h_fim = ultimo_minuto_produzido // 60
         m_fim = ultimo_minuto_produzido % 60
         termino = f"{h_fim:02d}:{m_fim:02d} (Capacidade Máxima do Turno)"
     else:
         termino = "Não iniciado"
 
-    # Captura o que ficou faltando
+    # Captura o que ficou faltando de verdade
     faltantes = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy()
     faltantes['FALTA'] = faltantes['FALTA'].astype(int)
 
@@ -204,7 +202,10 @@ if not base.empty:
                                           "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)})
 
     if st.button("🚀 Gerar Planejamento"):
-        df_v = df_ed.dropna(subset=['Equipamento'])
+        # --- ALTERAÇÃO AQUI: Garante filtragem rigorosa eliminando vazios e nulos ---
+        df_v = df_ed.dropna(subset=['Equipamento', 'Qtd'])
+        df_v = df_v[df_v['Qtd'] > 0]
+        
         if not df_v.empty:
             r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups)
             st.divider()
@@ -213,7 +214,6 @@ if not base.empty:
             c1.metric("Total Produzido", f"{int(r['tot'])} pçs")
             c2.metric("Horário da Última Peça", r['termino'])
             
-            # --- SEÇÃO DE PENDÊNCIAS / O QUE FICOU FALTANDO ---
             df_faltas = r['faltantes']
             if not df_faltas.empty:
                 st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil.")
