@@ -80,6 +80,9 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     marcos = ["08:30", "09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:30", "17:30"]
     pontos = [h_ini] + [m for m in marcos if para_min(m) > m_ini]
     
+    # --- CORREÇÃO DO COMPORTAMENTO: Agrupa duplicados antes do cruzamento ---
+    df_in = df_in.groupby('Equipamento', as_index=False).sum()
+    
     df_in = df_in.merge(df_ba, left_on='Equipamento', right_on='DISPLAY', how='left')
     
     def calcular_cadencia_real(row):
@@ -127,10 +130,8 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
                     tot += 1
                     p_h += 1
                     
-                    # Registra o minuto exato da última peça feita
                     ultimo_minuto_produzido = m_util
                     
-                    # Agrupamento visual para a tabela do Streamlit
                     nome_mod = df_in.loc[idx, 'ID']
                     if m_n and m_n[-1].startswith(nome_mod):
                         qtd_ant = int(m_n[-1].split('(')[1].replace(')', ''))
@@ -163,8 +164,8 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    # Captura o que ficou faltando de verdade
-    faltantes = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy()
+    # Captura o que ficou faltando de verdade sem duplicar índices
+    faltantes = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy().reset_index(drop=True)
     faltantes['FALTA'] = faltantes['FALTA'].astype(int)
 
     return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'faltantes': faltantes}
@@ -202,9 +203,8 @@ if not base.empty:
                                           "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)})
 
     if st.button("🚀 Gerar Planejamento"):
-        # --- ALTERAÇÃO AQUI: Garante filtragem rigorosa eliminando vazios e nulos ---
         df_v = df_ed.dropna(subset=['Equipamento', 'Qtd'])
-        df_v = df_v[df_v['Qtd'] > 0]
+        df_v = df_v[df_v['Qtd'] > 0].copy()
         
         if not df_v.empty:
             r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups)
