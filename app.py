@@ -19,6 +19,10 @@ MAPA_N_NATURAL = {
     "ACS - 01": 3,
 }
 
+# Inicializa a estrutura da tabela de paradas na memória do sistema (Session State)
+if 'paradas_data' not in st.session_state:
+    st.session_state['paradas_data'] = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+
 @st.cache_data(ttl=2)
 def carregar_base():
     try:
@@ -90,7 +94,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_gin_f  = para_min("09:40")
     m_ini    = para_min(h_ini)
 
-    # 1. Carrega paradas customizadas
     paradas_customizadas = []
     if df_paradas is not None and not df_paradas.empty:
         for _, row in df_paradas.iterrows():
@@ -102,11 +105,9 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
                 paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo.upper()})
 
-    # 2. Geração de pontos de corte dinâmicos (fatiando os blocos com base nas paradas inseridas)
     marcos_fixos = ["08:30","09:30","10:30","11:30","12:30","13:30","14:30","15:30","16:30","17:30"]
     marcos_min = [para_min(x) for x in marcos_fixos if para_min(x) > m_ini]
     
-    # Acrescenta os tempos das paradas customizadas e almoço para quebrar o cronograma na hora certa
     marcos_dinamicos = set(marcos_min)
     marcos_dinamicos.add(m_alm_i)
     marcos_dinamicos.add(m_alm_f)
@@ -145,12 +146,10 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
 
         horario_label = f"{para_str(p1)} – {para_str(p2)}"
 
-        # Se o bloco inteiro é Almoço
         if p1 >= m_alm_i and p2 <= m_alm_f:
             res.append({"Horário": horario_label, "Modelos": "🍱 INTERVALO DE ALMOÇO", "Peças": 0, "Acum": int(tot)})
             continue
 
-        # Se o bloco inteiro faz parte de uma parada customizada registrada pelo usuário
         motivo_custom_ativo = None
         for pc in paradas_customizadas:
             if p1 >= pc["ini"] and p2 <= pc["fim"]:
@@ -161,7 +160,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             res.append({"Horário": horario_label, "Modelos": f"🛑 PARADA: {motivo_custom_ativo}", "Peças": 0, "Acum": int(tot)})
             continue
 
-        # Filtra os minutos efetivamente úteis (descontando cafés padrão de fábrica)
         mins_uteis = []
         for m in range(p1, p2):
             if not (
@@ -211,7 +209,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             "Acum":    int(tot),
         })
 
-    # ---------- Horário de término ----------
     if total_ped == 0:
         termino = "Sem demanda"
     elif tot >= total_ped and ultimo_min is not None:
@@ -252,15 +249,20 @@ if not base.empty:
 
     st.sidebar.write("---")
     st.sidebar.markdown("### 🛑 Paradas Programadas")
-    df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
     
-    # INTERFACE CLEAN: Sem configurações de colunas estáticas (evita erros no Python 3.14+)
+    # Exibe o editor conectado ao session_state para permitir a limpeza por código
     df_p_ed = st.sidebar.data_editor(
-        df_paradas_vazias,
+        st.session_state['paradas_data'],
         num_rows="dynamic",
         use_container_width=True,
-        hide_index=True # Oculta os números da lateral esquerda deixando a tabela limpa
+        hide_index=True,
+        key="paradas_editor" # Chave interna do Streamlit para controle do widget
     )
+
+    # --- NOVO: Botão para limpar a tabela de paradas instantaneamente ---
+    if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
+        st.session_state['paradas_data'] = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+        st.rerun()
 
     st.header(f"📋 Planejamento: {sel_ups}")
 
@@ -283,6 +285,7 @@ if not base.empty:
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
+        # Captura as paradas inseridas pelo usuário na tela
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
 
         if not df_v.empty:
