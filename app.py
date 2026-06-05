@@ -121,8 +121,11 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # Recomposição da tabela cruzada limpando o índice
+    # --- CORREÇÃO DA CONEXÃO: Primeiro cruza com a base da planilha para ganhar os dados de velocidade ---
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
+
+    # --- DEPOIS DO MERGE: Consolida e junta as linhas duplicadas com segurança ---
+    df_in = df_in.groupby(['Equipamento', 'ID', 'UNIDADE_HORA', 'DESCRICAO', 'CEL_ORIGEM'], as_index=False)['Qtd'].sum()
 
     def cad_real(row):
         n_nom = MAPA_N_NATURAL.get(row["CEL_ORIGEM"], 5)
@@ -288,7 +291,7 @@ if not base.empty:
     if st.button("🚀 Gerar Planejamento"):
         st.session_state['paradas_limpas'] = False
         
-        # Limpeza cirúrgica contra linhas em branco/fantasmas na tabela de entrada
+        # Filtro de proteção contra linhas em branco do Streamlit
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
@@ -302,8 +305,6 @@ if not base.empty:
             c1.metric("Total Produzido", f"{r['tot']} pçs")
             c2.metric("Horário da Última Peça", r["termino"])
 
-            # --- CORREÇÃO DEFINITIVA DA REGRA DA FAIXA ALERTA ---
-            # Checagem direta, limpa e infalível baseada nos totais reais calculados
             if r['tot'] < r['total_ped']:
                 faltam = r['total_ped'] - r['tot']
                 st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
