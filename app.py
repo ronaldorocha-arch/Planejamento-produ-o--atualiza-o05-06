@@ -65,10 +65,19 @@ def carregar_base():
 
 
 def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
+    # Tratamento inteligente para ler horários digitados como "8", "08", "8:00" ou "08:00"
     def para_min(s):
         try:
-            h, m = map(int, str(s).split(":"))
-            return h * 60 + m
+            s_str = str(s).strip().replace(",", ".")
+            if not s_str or s_str.lower() == "nan":
+                return -1
+            if ":" in s_str:
+                h, m = map(int, s_str.split(":"))
+                return h * 60 + m
+            else:
+                # Se o usuário digitou apenas um número inteiro (ex: 8 ou 9)
+                val = int(float(s_str))
+                return val * 60
         except:
             return -1
 
@@ -85,9 +94,9 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
         for _, row in df_paradas.iterrows():
             if pd.isna(row["Início"]) or pd.isna(row["Fim"]):
                 continue
-            ini_p = para_min(str(row["Início"]).strip())
-            fim_p = para_min(str(row["Fim"]).strip())
-            motivo = str(row["Motivo"]).strip() if not pd.isna(row["Motivo"]) and str(row["Motivo"]).strip() != "" and str(row["Motivo"]).strip().lower() != "nan" else "PARADA PROGRAMADA"
+            ini_p = para_min(row["Início"])
+            fim_p = para_min(row["Fim"])
+            motivo = str(row["Motivo"]).strip() if not pd.isna(row["Motivo"]) and str(row["Motivo"]).strip() != "" and str(row["Motivo"]).strip().lower() != "nan" else "PARADA"
             if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
                 paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo})
 
@@ -250,7 +259,6 @@ if not base.empty:
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
     
-    # CORRIGIDO DEFINITIVAMENTE: Deixado o editor puro sem o column_config problemático do Python 3.14+
     df_p_ed = st.sidebar.data_editor(
         df_paradas_vazias,
         num_rows="dynamic",
