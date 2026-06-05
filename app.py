@@ -65,7 +65,6 @@ def carregar_base():
 
 
 def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
-    # Tratamento inteligente para ler horários digitados como "8", "08", "8:00" ou "08:00"
     def para_min(s):
         try:
             s_str = str(s).strip().replace(",", ".")
@@ -75,11 +74,13 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
                 h, m = map(int, s_str.split(":"))
                 return h * 60 + m
             else:
-                # Se o usuário digitou apenas um número inteiro (ex: 8 ou 9)
                 val = int(float(s_str))
                 return val * 60
         except:
             return -1
+
+    def para_str(m_tot):
+        return f"{m_tot // 60:02d}:{m_tot % 60:02d}"
 
     m_alm_i  = para_min("11:30")
     m_alm_f  = para_min("12:30")
@@ -89,6 +90,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_gin_f  = para_min("09:40")
     m_ini    = para_min(h_ini)
 
+    # 1. Carrega paradas customizadas
     paradas_customizadas = []
     if df_paradas is not None and not df_paradas.empty:
         for _, row in df_paradas.iterrows():
@@ -98,10 +100,23 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             fim_p = para_min(row["Fim"])
             motivo = str(row["Motivo"]).strip() if not pd.isna(row["Motivo"]) and str(row["Motivo"]).strip() != "" and str(row["Motivo"]).strip().lower() != "nan" else "PARADA"
             if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
-                paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo})
+                paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo.upper()})
 
-    marcos = ["08:30","09:30","10:30","11:30","12:30","13:30","14:30","15:30","16:30","17:30"]
-    pontos = [h_ini] + [m for m in marcos if para_min(m) > m_ini]
+    # 2. Geração de pontos de corte dinâmicos (fatiando os blocos com base nas paradas inseridas)
+    marcos_fixos = ["08:30","09:30","10:30","11:30","12:30","13:30","14:30","15:30","16:30","17:30"]
+    marcos_min = [para_min(x) for x in marcos_fixos if para_min(x) > m_ini]
+    
+    # Acrescenta os tempos das paradas customizadas e almoço para quebrar o cronograma na hora certa
+    marcos_dinamicos = set(marcos_min)
+    marcos_dinamicos.add(m_alm_i)
+    marcos_dinamicos.add(m_alm_f)
+    for pc in paradas_customizadas:
+        marcos_dinamicos.add(pc["ini"])
+        marcos_dinamicos.add(pc["fim"])
+        
+    pontos_min = sorted([x for x in marcos_dinamicos if x >= m_ini])
+    if m_ini not in pontos_min:
+        pontos_min = [m_ini] + pontos_min
 
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
@@ -121,36 +136,34 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     tot   = 0
     ultimo_min = None
 
-    for p in range(len(pontos) - 1):
-        p1 = para_min(pontos[p])
-        p2 = para_min(pontos[p + 1])
-
-        # ---------- ALMOÇO ----------
-        if p1 == m_alm_i and p2 == m_alm_f:
-            res.append({
-                "Horário": f"{pontos[p]} – {pontos[p+1]}",
-                "Modelos": "🍱 INTERVALO DE ALMOÇO",
-                "Peças": 0,
-                "Acum": int(tot),
-            })
+    for p in range(len(pontos_min) - 1):
+        p1 = pontos_min[p]
+        p2 = pontos_min[p + 1]
+        
+        if p1 == p2:
             continue
 
-        # ---------- Minutos úteis do intervalo ----------
+        horario_label = f"{para_str(p1)} – {para_str(p2)}"
+
+        # Se o bloco inteiro é Almoço
+        if p1 >= m_alm_i and p2 <= m_alm_f:
+            res.append({"Horário": horario_label, "Modelos": "🍱 INTERVALO DE ALMOÇO", "Peças": 0, "Acum": int(tot)})
+            continue
+
+        # Se o bloco inteiro faz parte de uma parada customizada registrada pelo usuário
+        motivo_custom_ativo = None
+        for pc in paradas_customizadas:
+            if p1 >= pc["ini"] and p2 <= pc["fim"]:
+                motivo_custom_ativo = pc["motivo"]
+                break
+                
+        if motivo_custom_ativo:
+            res.append({"Horário": horario_label, "Modelos": f"🛑 PARADA: {motivo_custom_ativo}", "Peças": 0, "Acum": int(tot)})
+            continue
+
+        # Filtra os minutos efetivamente úteis (descontando cafés padrão de fábrica)
         mins_uteis = []
-        motivos_parada_do_bloco = []
-
         for m in range(p1, p2):
-            foi_parada_custom = False
-            for pc in paradas_customizadas:
-                if pc["ini"] <= m < pc["fim"]:
-                    foi_parada_custom = True
-                    if pc["motivo"] not in motivos_parada_do_bloco:
-                        motivos_parada_do_bloco.append(pc["motivo"])
-                    break
-            
-            if foi_parada_custom:
-                continue
-
             if not (
                 (m_cafe_m <= m < m_cafe_m + 10)
                 or (m_cafe_t <= m < m_cafe_t + 10)
@@ -159,20 +172,8 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             ):
                 mins_uteis.append(m)
 
-        if len(mins_uteis) == 0 and motivos_parada_do_bloco:
-            res.append({
-                "Horário": f"{pontos[p]} – {pontos[p+1]}",
-                "Modelos": f"🛑 " + " + ".join(motivos_parada_do_bloco).upper(),
-                "Peças": 0,
-                "Acum": int(tot),
-            })
-            continue
-
         p_h = 0
         m_n = []  
-
-        if motivos_parada_do_bloco:
-            m_n.append(f"[{' + '.join(motivos_parada_do_bloco).upper()}]")
 
         for m_util in mins_uteis:
             if idx >= len(df_in):
@@ -195,8 +196,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
                     if m_n and m_n[-1].startswith(nome + " ("):
                         qtd_ant   = int(m_n[-1].split("(")[1].rstrip(")"))
                         m_n[-1]   = f"{nome} ({qtd_ant + 1})"
-                    elif m_n and m_n[-1].startswith("["):
-                        m_n.append(f"{nome} (1)")
                     else:
                         m_n.append(f"{nome} (1)")
 
@@ -206,7 +205,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
                     break  
 
         res.append({
-            "Horário": f"{pontos[p]} – {pontos[p+1]}",
+            "Horário": horario_label,
             "Modelos": " + ".join(m_n) if m_n else "-",
             "Peças":   int(p_h),
             "Acum":    int(tot),
@@ -216,13 +215,9 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if total_ped == 0:
         termino = "Sem demanda"
     elif tot >= total_ped and ultimo_min is not None:
-        h_fim = ultimo_min // 60
-        m_fim = ultimo_min % 60
-        termino = f"{h_fim:02d}:{m_fim:02d}"
+        termino = para_str(ultimo_min)
     elif ultimo_min is not None:
-        h_fim = ultimo_min // 60
-        m_fim = ultimo_min % 60
-        termino = f"{h_fim:02d}:{m_fim:02d} (Capacidade Máxima do Turno)"
+        termino = f"{para_str(ultimo_min)} (Capacidade Máxima do Turno)"
     else:
         termino = "Não iniciado"
 
@@ -259,10 +254,12 @@ if not base.empty:
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
     
+    # INTERFACE CLEAN: Sem configurações de colunas estáticas (evita erros no Python 3.14+)
     df_p_ed = st.sidebar.data_editor(
         df_paradas_vazias,
         num_rows="dynamic",
-        use_container_width=True
+        use_container_width=True,
+        hide_index=True # Oculta os números da lateral esquerda deixando a tabela limpa
     )
 
     st.header(f"📋 Planejamento: {sel_ups}")
@@ -306,8 +303,8 @@ if not base.empty:
                 celula_texto = str(row["Modelos"])
                 if "ALMOÇO" in celula_texto:
                     return ["background-color: #fff3cd"] * len(row)
-                if "🛑" in celula_texto or "-" in celula_texto and row["Peças"] == 0:
-                    return ["background-color: #f8d7da; color: #721c24;font-weight: bold;"] * len(row)
+                if "🛑" in celula_texto or "PARADA" in celula_texto:
+                    return ["background-color: #f8d7da; color: #721c24; font-weight: bold;"] * len(row)
                 return [""] * len(row)
 
             st.subheader("📅 Cronograma Detalhado por Hora")
