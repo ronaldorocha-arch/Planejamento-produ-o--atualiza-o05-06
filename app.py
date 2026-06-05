@@ -135,7 +135,8 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
             # tenta produzir 1 ou mais peças dentro deste minuto
             while idx < len(df_in):
                 t_pc = df_in.loc[idx, "T_PC"]
-                if acum >= t_pc - 0.001:        # -0.001 = tolerância float
+                # Adicionada tolerância fina (+0.1) para proteger frações residuais de minutos quebrados
+                if (acum + 0.1) >= t_pc - 0.001:
                     acum -= t_pc
                     if acum < 0:
                         acum = 0.0
@@ -153,7 +154,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
 
                     if df_in.loc[idx, "FALTA"] <= 0:
                         idx += 1
-                    # continua tentando produzir mais peças no mesmo minuto
                 else:
                     break  # acum ainda insuficiente; passa para o próximo minuto
 
@@ -201,15 +201,15 @@ if not base.empty:
 
     liberar_modelos = st.sidebar.checkbox("🔓 Usar modelos de outras UPS?", value=False)
     tem_gin         = st.sidebar.checkbox("🤸 Haverá Ginástica Laboral?",   value=False)
-    h_ini           = st.sidebar.text_input("Início da Produção", "07:45")
-    n_dia           = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
+    h_ini            = st.sidebar.text_input("Início da Production", "07:45")
+    n_dia            = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
 
     st.header(f"📋 Planejamento: {sel_ups}")
 
     if liberar_modelos:
         opcoes = sorted(base["DISPLAY"].tolist())
     else:
-        opcoes = sorted(base[base["CEL_ORIGEM"] == sel_ups]["DISPLAY"].tolist())
+        opcoes = sorted(base[base["CEL_ORIGEM"] == sel_ups]["DISPLAY'].tolist())
 
     df_ed = st.data_editor(
         pd.DataFrame(columns=["Equipamento", "Qtd"]),
