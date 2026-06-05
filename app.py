@@ -121,8 +121,22 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # Cruza com o banco de dados mantendo a ordem exata das linhas digitadas
+    # Garante o merge mantendo o index original do editor da tela
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
+
+    def calcular_total_restante(df_atual):
+        sobras_lista = []
+        for i_row in range(len(df_atual)):
+            qtd_resto = df_atual.loc[i_row, "FALTA"]
+            if qtd_resto > 0:
+                sobras_lista.append({
+                    "Modelo Pendente": df_atual.loc[i_row, "ID"],
+                    "Qtd Restante": int(qtd_resto)
+                })
+        if sobras_lista:
+            df_s = pd.DataFrame(sobras_lista)
+            return df_s.groupby("Modelo Pendente", as_index=False)["Qtd Restante"].sum()
+        return pd.DataFrame()
 
     def cad_real(row):
         n_nom = MAPA_N_NATURAL.get(row["CEL_ORIGEM"], 5)
@@ -221,19 +235,14 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     else:
         termino = "Não iniciado"
 
-    # Captura os modelos que realmente ficaram com saldo pendente maior que zero
-    df_sobras = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy()
-    if not df_sobras.empty:
-        df_sobras = df_sobras.groupby('ID', as_index=False)['FALTA'].sum()
-        df_sobras['FALTA'] = df_sobras['FALTA'].astype(int)
-        df_sobras = df_sobras[df_sobras['FALTA'] > 0].reset_index(drop=True)
+    df_sobras_finais = calcular_total_restante(df_in)
 
     return {
         "df":        pd.DataFrame(res),
         "tot":       tot,
         "total_ped": total_ped,
         "termino":   termino,
-        "sobras":    df_sobras
+        "sobras":    df_sobras_finais
     }
 
 
@@ -296,7 +305,6 @@ if not base.empty:
     if st.button("🚀 Gerar Planejamento"):
         st.session_state['paradas_limpas'] = False
         
-        # Filtragem rigorosa contra linhas em branco do Streamlit para o cálculo total não mentir
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
@@ -310,15 +318,16 @@ if not base.empty:
             c1.metric("Total Produzido", f"{r['tot']} pçs")
             c2.metric("Horário da Última Peça", r["termino"])
 
-            # --- NOVA REGRA MATEMÁTICA PURA E INFALÍVEL CONTRA AS SOBRAS REAIS ---
+            # --- CORREÇÃO MATEMÁTICA DEFINITIVA DA FAIXA VERMELHA ---
+            # Só dá erro se o total produzido for menor do que a soma real pedida
             if r['tot'] < r['total_ped']:
                 faltam = r['total_ped'] - r['tot']
                 st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
                 
-                # Mostra o modelo e a quantidade exata que ficou devendo
+                # Só exibe a mini tabela se houver sobras salvas na memória
                 if 'sobras' in r and not r['sobras'].empty:
                     st.subheader("🛑 Itens Não Finalizados (Pendências)")
-                    st.dataframe(r['sobras'].rename(columns={'ID': 'Modelo Pendente', 'FALTA': 'Qtd Restante'}), use_container_width=True)
+                    st.dataframe(r['sobras'], use_container_width=True, hide_index=True)
             else:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
 
