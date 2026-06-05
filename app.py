@@ -80,10 +80,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     marcos = ["08:30", "09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:30", "17:30"]
     pontos = [h_ini] + [m for m in marcos if para_min(m) > m_ini]
     
-    # Cruzamento com o banco de dados mantendo a ordenação original intacta
     df_in = df_in.merge(df_ba, left_on='Equipamento', right_on='DISPLAY', how='left')
-    
-    # --- CORREÇÃO DEFINITIVA: Reseta o índice para evitar conflitos com linhas repetidas ---
     df_in = df_in.reset_index(drop=True)
     
     def calcular_cadencia_real(row):
@@ -165,10 +162,12 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    # Captura as faltas agregando por modelo apenas na exibição do relatório final
+    # --- ALTERAÇÃO SOLICITADA AQUI: Agrupa e remove estritamente o que foi zerado ---
     faltantes_raw = df_in[df_in['FALTA'] > 0]
     if not faltantes_raw.empty:
         faltantes = faltantes_raw.groupby('ID', as_index=False)['FALTA'].sum()
+        # Filtro de segurança: Garante mostrar apenas valores acima de 0 de forma estrita
+        faltantes = faltantes[faltantes['FALTA'] > 0].reset_index(drop=True)
         faltantes['FALTA'] = faltantes['FALTA'].astype(int)
     else:
         faltantes = pd.DataFrame(columns=['ID', 'FALTA'])
@@ -192,7 +191,7 @@ if not base.empty:
     liberar_modelos = st.sidebar.checkbox("🔓 Usar modelos de outras UPS?", value=False)
     tem_gin = st.sidebar.checkbox("🤸 Haverá Ginástica Laboral?", value=False)
     
-    h_ini = st.sidebar.text_input("Início da Production", "07:45")
+    h_ini = st.sidebar.text_input("Início da Produção", "07:45")
     
     n_dia = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
 
