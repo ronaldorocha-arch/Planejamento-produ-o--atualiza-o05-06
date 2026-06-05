@@ -22,7 +22,6 @@ MAPA_N_NATURAL = {
 if 'paradas_reset_key' not in st.session_state:
     st.session_state['paradas_reset_key'] = 0
 
-# Guarda na memória se as paradas foram limpas recentemente para forçar o cálculo correto
 if 'paradas_limpas' not in st.session_state:
     st.session_state['paradas_limpas'] = False
 
@@ -98,7 +97,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_ini    = para_min(h_ini)
 
     paradas_customizadas = []
-    # Só processa paradas se a limpeza for falsa
     if df_paradas is not None and not df_paradas.empty and not st.session_state['paradas_limpas']:
         for _, row in df_paradas.iterrows():
             if pd.isna(row["Início"]) or pd.isna(row["Fim"]):
@@ -266,7 +264,6 @@ if not base.empty:
         key=editor_key
     )
 
-    # CORREÇÃO: Força a limpeza total da memória para o aviso sumir de primeira
     if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
         st.session_state['paradas_reset_key'] += 1
         st.session_state['paradas_limpas'] = True
@@ -291,10 +288,13 @@ if not base.empty:
     )
 
     if st.button("🚀 Gerar Planejamento"):
-        # Se o usuário clicou para recalcular após limpar as paradas, desarma a trava
         st.session_state['paradas_limpas'] = False
         
-        df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
+        # --- FILTRO BLINDADO CONTRA LINHAS FANTASMAS ---
+        # Deleta qualquer linha do editor que não tenha um Modelo explicitamente preenchido
+        df_v = df_ed.dropna(subset=["Equipamento"])
+        df_v = df_v[df_v["Equipamento"].astype(str).str.strip() != ""]
+        df_v = df_v.dropna(subset=["Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
@@ -329,4 +329,3 @@ if not base.empty:
             )
 else:
     st.error("⚠️ Base de dados não carregada. Verifique se a aba 'BASE' é a primeira da planilha.")
-    
