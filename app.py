@@ -162,17 +162,10 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    # --- ALTERAÇÃO SOLICITADA AQUI: Agrupa e remove estritamente o que foi zerado ---
-    faltantes_raw = df_in[df_in['FALTA'] > 0]
-    if not faltantes_raw.empty:
-        faltantes = faltantes_raw.groupby('ID', as_index=False)['FALTA'].sum()
-        # Filtro de segurança: Garante mostrar apenas valores acima de 0 de forma estrita
-        faltantes = faltantes[faltantes['FALTA'] > 0].reset_index(drop=True)
-        faltantes['FALTA'] = faltantes['FALTA'].astype(int)
-    else:
-        faltantes = pd.DataFrame(columns=['ID', 'FALTA'])
+    # Captura se há alguma falta estrita apenas para controle do aviso na tela
+    tem_sobra = (df_in['FALTA'] > 0).any()
 
-    return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'faltantes': faltantes}
+    return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'tem_sobra': tem_sobra}
 
 # --- INTERFACE ---
 base = carregar_base()
@@ -218,11 +211,9 @@ if not base.empty:
             c1.metric("Total Produzido", f"{int(r['tot'])} pçs")
             c2.metric("Horário da Última Peça", r['termino'])
             
-            df_faltas = r['faltantes']
-            if not df_faltas.empty:
+            # --- EXIBE APENAS A MENSAGEM DE ERRO/SUCESSO SEM A TABELA ---
+            if r['tem_sobra']:
                 st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil.")
-                st.subheader("🛑 Itens Não Finalizados (Pendências)")
-                st.dataframe(df_faltas.rename(columns={'ID': 'Modelo Pendente', 'FALTA': 'Qtd Restante'}), use_container_width=True)
             else:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
             
