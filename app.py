@@ -19,9 +19,9 @@ MAPA_N_NATURAL = {
     "ACS - 01": 3,
 }
 
-# Inicializa a estrutura da tabela de paradas na memória do sistema (Session State)
-if 'paradas_data' not in st.session_state:
-    st.session_state['paradas_data'] = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+# Cria um contador de reset na memória para limpar o editor sem travar o app
+if 'paradas_reset_key' not in st.session_state:
+    st.session_state['paradas_reset_key'] = 0
 
 @st.cache_data(ttl=2)
 def carregar_base():
@@ -238,7 +238,8 @@ if not base.empty:
 
     lista_ups = sorted(base["CEL_ORIGEM"].unique().tolist())
     default_index = lista_ups.index("UPS - 1") if "UPS - 1" in lista_ups else 0
-    sel_ups = st.sidebar.selectbox("Célula de Trabalho", lista_ups, index=default_index)
+    st.sidebar.selectbox("Célula de Trabalho", lista_ups, index=default_index, key="sel_ups_key")
+    sel_ups = st.session_state["sel_ups_key"]
 
     n_sugerido = MAPA_N_NATURAL.get(sel_ups, 5)
 
@@ -250,18 +251,22 @@ if not base.empty:
     st.sidebar.write("---")
     st.sidebar.markdown("### 🛑 Paradas Programadas")
     
-    # Exibe o editor conectado ao session_state para permitir a limpeza por código
+    df_paradas_vazias = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+    
+    # Chave dinâmica combinada com o contador de resets garante limpeza instantânea e leve
+    editor_key = f"paradas_editor_{st.session_state['paradas_reset_key']}"
+    
     df_p_ed = st.sidebar.data_editor(
-        st.session_state['paradas_data'],
+        df_paradas_vazias,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        key="paradas_editor" # Chave interna do Streamlit para controle do widget
+        key=editor_key
     )
 
-    # --- NOVO: Botão para limpar a tabela de paradas instantaneamente ---
+    # Botão de limpar otimizado: altera o estado interno sem causar lentidão no servidor
     if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
-        st.session_state['paradas_data'] = pd.DataFrame(columns=["Início", "Fim", "Motivo"])
+        st.session_state['paradas_reset_key'] += 1
         st.rerun()
 
     st.header(f"📋 Planejamento: {sel_ups}")
@@ -279,13 +284,13 @@ if not base.empty:
             "Equipamento": st.column_config.SelectboxColumn("Modelo", options=opcoes),
             "Qtd":         st.column_config.NumberColumn("Qtd", min_value=1),
         },
+        key="modelos_editor"
     )
 
     if st.button("🚀 Gerar Planejamento"):
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
-        # Captura as paradas inseridas pelo usuário na tela
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
 
         if not df_v.empty:
