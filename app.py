@@ -22,8 +22,9 @@ MAPA_N_NATURAL = {
 if 'paradas_reset_key' not in st.session_state:
     st.session_state['paradas_reset_key'] = 0
 
-if 'paradas_limpas' not in st.session_state:
-    st.session_state['paradas_limpas'] = False
+# Estado global para limpar os resultados da tela no momento do clique de limpar paradas
+if 'resultado_planejamento' not in st.session_state:
+    st.session_state['resultado_planejamento'] = None
 
 @st.cache_data(ttl=2)
 def carregar_base():
@@ -97,7 +98,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     m_ini    = para_min(h_ini)
 
     paradas_customizadas = []
-    if df_paradas is not None and not df_paradas.empty and not st.session_state['paradas_limpas']:
+    if df_paradas is not None and not df_paradas.empty:
         for _, row in df_paradas.iterrows():
             if pd.isna(row["Início"]) or pd.isna(row["Fim"]):
                 continue
@@ -121,7 +122,6 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # Garante o merge mantendo o index original do editor da tela
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left").reset_index(drop=True)
 
     def calcular_total_restante(df_atual):
@@ -279,9 +279,10 @@ if not base.empty:
         key=editor_key
     )
 
+    # --- CORREÇÃO DO BOTÃO DE LIMPAR: Limpa a visualização e reseta o painel central ---
     if st.sidebar.button("🗑️ Limpar Paradas", use_container_width=True):
         st.session_state['paradas_reset_key'] += 1
-        st.session_state['paradas_limpas'] = True
+        st.session_state['resultado_planejamento'] = None
         st.rerun()
 
     st.header(f"📋 Planejamento: {sel_ups}")
@@ -303,47 +304,47 @@ if not base.empty:
     )
 
     if st.button("🚀 Gerar Planejamento"):
-        st.session_state['paradas_limpas'] = False
-        
         df_v = df_ed.dropna(subset=["Equipamento", "Qtd"])
         df_v = df_v[df_v["Qtd"] > 0].copy()
 
         df_p_validas = df_p_ed.dropna(subset=["Início", "Fim"]) if not df_p_ed.empty else None
 
         if not df_v.empty:
-            r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups, df_p_validas)
-            st.divider()
+            # Salva o resultado gerado direto no session_state para controle total de exibição
+            st.session_state['resultado_planejamento'] = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups, df_p_validas)
 
-            c1, c2 = st.columns(2)
-            c1.metric("Total Produzido", f"{r['tot']} pçs")
-            c2.metric("Horário da Última Peça", r["termino"])
+    # --- RENDERIZAÇÃO DO PAINEL PRINCIPAL ---
+    if st.session_state['resultado_planejamento'] is not None:
+        r = st.session_state['resultado_planejamento']
+        st.divider()
 
-            # --- CORREÇÃO MATEMÁTICA DEFINITIVA DA FAIXA VERMELHA ---
-            # Só dá erro se o total produzido for menor do que a soma real pedida
-            if r['tot'] < r['total_ped']:
-                faltam = r['total_ped'] - r['tot']
-                st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
-                
-                # Só exibe a mini tabela se houver sobras salvas na memória
-                if 'sobras' in r and not r['sobras'].empty:
-                    st.subheader("🛑 Itens Não Finalizados (Pendências)")
-                    st.dataframe(r['sobras'], use_container_width=True, hide_index=True)
-            else:
-                st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
+        c1, c2 = st.columns(2)
+        c1.metric("Total Produzido", f"{r['tot']} pçs")
+        c2.metric("Horário da Última Peça", r["termino"])
 
-            def style_almoco(row):
-                celula_texto = str(row["Modelos"])
-                if "ALMOÇO" in celula_texto:
-                    return ["background-color: #fff3cd"] * len(row)
-                if "🛑" in celula_texto or "PARADA" in celula_texto:
-                    return ["background-color: #f8d7da; color: #721c24; font-weight: bold;"] * len(row)
-                return [""] * len(row)
+        if r['tot'] < r['total_ped']:
+            faltam = r['total_ped'] - r['tot']
+            st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
+            
+            if 'sobras' in r and not r['sobras'].empty:
+                st.subheader("🛑 Itens Não Finalizados (Pendências)")
+                st.dataframe(r['sobras'], use_container_width=True, hide_index=True)
+        else:
+            st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
 
-            st.subheader("📅 Cronograma Detalhado por Hora")
-            st.dataframe(
-                r["df"].style.apply(style_almoco, axis=1),
-                use_container_width=True,
-                height=450,
-            )
+        def style_almoco(row):
+            celula_texto = str(row["Modelos"])
+            if "ALMOÇO" in celula_texto:
+                return ["background-color: #fff3cd"] * len(row)
+            if "🛑" in celula_texto or "PARADA" in celula_texto:
+                return ["background-color: #f8d7da; color: #721c24; font-weight: bold;"] * len(row)
+            return [""] * len(row)
+
+        st.subheader("📅 Cronograma Detalhado por Hora")
+        st.dataframe(
+            r["df"].style.apply(style_almoco, axis=1),
+            use_container_width=True,
+            height=450,
+        )
 else:
     st.error("⚠️ Base de dados não carregada. Verifique se a aba 'BASE' é a primeira da planilha.")
