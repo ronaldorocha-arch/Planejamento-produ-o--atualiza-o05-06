@@ -91,66 +91,84 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     df_in['T_PC'] = 60 / df_in['CAD_R']
     df_in['FALTA'] = pd.to_numeric(df_in['Qtd'])
     
-    res, total_ped = [], df_in['FALTA'].sum()
-    acum, idx, tot = 0.0, 0, 0
-    
+    total_ped = int(df_in['FALTA'].sum())
+
+    res = []
+    # acum persiste entre todos os slots (não reinicia a cada intervalo)
+    acum = 0.0
+    idx = 0
+    tot = 0
     ultimo_minuto_produzido = None
 
-    for p in range(len(pontos)-1):
-        p1, p2 = para_min(pontos[p]), para_min(pontos[p+1])
+    for p in range(len(pontos) - 1):
+        p1 = para_min(pontos[p])
+        p2 = para_min(pontos[p + 1])
         is_alm = (p1 == m_alm_i and p2 == m_alm_f)
-        
-        min_u = 0
-        minutos_uteis_reais = []
-        
-        if not is_alm:
-            for m in range(p1, p2):
-                if not ((m_cafe_m <= m < m_cafe_m+10) or 
-                        (m_cafe_t <= m < m_cafe_t+10) or 
-                        (m_alm_i <= m < m_alm_f) or 
-                        (tem_gin and m_gin_i <= m < m_gin_f)):
-                    min_u += 1
-                    minutos_uteis_reais.append(m)
-        
-        p_h, m_n = 0, []
-        
+
         if is_alm:
-            res.append({'Horário': f"{pontos[p]} – {pontos[p+1]}", 'Modelos': "🍱 INTERVALO DE ALMOÇO", 'Peças': 0, 'Acum': int(tot)})
+            res.append({
+                'Horário': f"{pontos[p]} – {pontos[p+1]}",
+                'Modelos': "🍱 INTERVALO DE ALMOÇO",
+                'Peças': 0,
+                'Acum': int(tot)
+            })
             continue
 
+        # Monta lista de minutos úteis do intervalo
+        minutos_uteis_reais = []
+        for m in range(p1, p2):
+            if not (
+                (m_cafe_m <= m < m_cafe_m + 10) or
+                (m_cafe_t <= m < m_cafe_t + 10) or
+                (m_alm_i <= m < m_alm_f) or
+                (tem_gin and m_gin_i <= m < m_gin_f)
+            ):
+                minutos_uteis_reais.append(m)
+
+        p_h = 0
+        m_n = []
+
         for m_util in minutos_uteis_reais:
-            acum += 1
+            if idx >= len(df_in):
+                break
+
+            acum += 1.0
+
+            # Produz todas as peças possíveis dentro deste minuto
             while idx < len(df_in):
                 t_pc = df_in.loc[idx, 'T_PC']
-                # Adicionado +0.1 de tolerância para corrigir arredondamento dos minutos quebrados
-                if (acum + 0.1) >= t_pc:
+                if acum >= t_pc - 0.001:   # tolerância para float
                     acum -= t_pc
-                    if acum < 0: acum = 0.0
+                    if acum < 0:
+                        acum = 0.0
+
                     df_in.loc[idx, 'FALTA'] -= 1
                     tot += 1
                     p_h += 1
-                    
                     ultimo_minuto_produzido = m_util
-                    
+
                     nome_mod = df_in.loc[idx, 'ID']
                     if m_n and m_n[-1].startswith(nome_mod):
                         qtd_ant = int(m_n[-1].split('(')[1].replace(')', ''))
                         m_n[-1] = f"{nome_mod} ({qtd_ant + 1})"
                     else:
                         m_n.append(f"{nome_mod} (1)")
-                        
-                    if df_in.loc[idx, 'FALTA'] <= 0: 
-                        idx += 1
-                    else: 
-                        break
-                else:
-                    break
-            if idx >= len(df_in):
-                break
-                
-        res.append({'Horário': f"{pontos[p]} – {pontos[p+1]}", 'Modelos': " + ".join(m_n) if m_n else "-", 'Peças': int(p_h), 'Acum': int(tot)})
 
-    # Determinação do Horário de Término Real
+                    if df_in.loc[idx, 'FALTA'] <= 0:
+                        idx += 1
+                    # continua o while para tentar mais peças no mesmo minuto
+                    # (útil para cadências > 1 pç/min)
+                else:
+                    break   # acum insuficiente para mais uma peça agora
+
+        res.append({
+            'Horário': f"{pontos[p]} – {pontos[p+1]}",
+            'Modelos': " + ".join(m_n) if m_n else "-",
+            'Peças': int(p_h),
+            'Acum': int(tot)
+        })
+
+    # --- Horário de Término Real ---
     if total_ped == 0:
         termino = "Sem demanda"
     elif tot >= total_ped and ultimo_minuto_produzido is not None:
@@ -164,9 +182,18 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    tem_sobra = (df_in['FALTA'] > 0).any()
+    # BUG CORRIGIDO: tem_sobra só é True se realmente ficou peça sem produzir
+    # Antes checava df_in['FALTA'] > 0, mas modelos não alcançados ficavam com
+    # FALTA original positiva mesmo quando tot == total_ped
+    tem_sobra = (tot < total_ped)
 
-    return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'tem_sobra': tem_sobra}
+    return {
+        'df': pd.DataFrame(res),
+        'tot': tot,
+        'total_ped': total_ped,
+        'termino': termino,
+        'tem_sobra': tem_sobra
+    }
 
 # --- INTERFACE ---
 base = carregar_base()
@@ -196,9 +223,15 @@ if not base.empty:
     else:
         opcoes = sorted(base[base['CEL_ORIGEM'] == sel_ups]['DISPLAY'].tolist())
         
-    df_ed = st.data_editor(pd.DataFrame(columns=["Equipamento", "Qtd"]), num_rows="dynamic", use_container_width=True,
-                           column_config={"Equipamento": st.column_config.SelectboxColumn("Modelo", options=opcoes),
-                                          "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)})
+    df_ed = st.data_editor(
+        pd.DataFrame(columns=["Equipamento", "Qtd"]),
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "Equipamento": st.column_config.SelectboxColumn("Modelo", options=opcoes),
+            "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)
+        }
+    )
 
     if st.button("🚀 Gerar Planejamento"):
         df_v = df_ed.dropna(subset=['Equipamento', 'Qtd'])
@@ -213,7 +246,8 @@ if not base.empty:
             c2.metric("Horário da Última Peça", r['termino'])
             
             if r['tem_sobra']:
-                st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil.")
+                faltam = r['total_ped'] - r['tot']
+                st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil. Faltaram {faltam} peças.")
             else:
                 st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
             
