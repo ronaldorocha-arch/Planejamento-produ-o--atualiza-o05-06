@@ -80,10 +80,11 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     marcos = ["08:30", "09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:30", "16:30", "17:30"]
     pontos = [h_ini] + [m for m in marcos if para_min(m) > m_ini]
     
-    # --- CORREÇÃO DO COMPORTAMENTO: Agrupa duplicados antes do cruzamento ---
-    df_in = df_in.groupby('Equipamento', as_index=False).sum()
-    
+    # Cruzamento com o banco de dados mantendo a ordenação original intacta
     df_in = df_in.merge(df_ba, left_on='Equipamento', right_on='DISPLAY', how='left')
+    
+    # --- CORREÇÃO DEFINITIVA: Reseta o índice para evitar conflitos com linhas repetidas ---
+    df_in = df_in.reset_index(drop=True)
     
     def calcular_cadencia_real(row):
         n_nominal_origem = MAPA_N_NATURAL.get(row['CEL_ORIGEM'], 5)
@@ -164,9 +165,13 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     else:
         termino = "Não iniciado"
 
-    # Captura o que ficou faltando de verdade sem duplicar índices
-    faltantes = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy().reset_index(drop=True)
-    faltantes['FALTA'] = faltantes['FALTA'].astype(int)
+    # Captura as faltas agregando por modelo apenas na exibição do relatório final
+    faltantes_raw = df_in[df_in['FALTA'] > 0]
+    if not faltantes_raw.empty:
+        faltantes = faltantes_raw.groupby('ID', as_index=False)['FALTA'].sum()
+        faltantes['FALTA'] = faltantes['FALTA'].astype(int)
+    else:
+        faltantes = pd.DataFrame(columns=['ID', 'FALTA'])
 
     return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'faltantes': faltantes}
 
@@ -187,7 +192,7 @@ if not base.empty:
     liberar_modelos = st.sidebar.checkbox("🔓 Usar modelos de outras UPS?", value=False)
     tem_gin = st.sidebar.checkbox("🤸 Haverá Ginástica Laboral?", value=False)
     
-    h_ini = st.sidebar.text_input("Início da Produção", "07:45")
+    h_ini = st.sidebar.text_input("Início da Production", "07:45")
     
     n_dia = st.sidebar.number_input(f"Pessoas na {sel_ups}", 1, 20, value=n_sugerido)
 
