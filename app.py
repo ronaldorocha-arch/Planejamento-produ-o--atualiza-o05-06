@@ -301,12 +301,7 @@ if not base.empty:
         c1.metric("Total Produzido", f"{r['tot']} pçs")
         c2.metric("Horário da Última Peça", r["termino"])
 
-        # --- VALIDADO: Mensagem inteligente sem falsas pendências ---
-        if r['tot'] < r['total_ped']:
-            faltam = r['total_ped'] - r['tot']
-            st.error(f"⚠️ Atenção: Meta não atingida por falta de tempo útil. Faltaram {faltam} peça(s).")
-        else:
-            st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
+        # --- RESTRUTURADO: Toda a lógica de faixas de erro ou sucesso foi retirada daqui ---
 
         def style_almoco(row):
             celula_texto = str(row["Modelos"])
