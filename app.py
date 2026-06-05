@@ -91,13 +91,17 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
     df_in['FALTA'] = pd.to_numeric(df_in['Qtd'])
     
     res, total_ped = [], df_in['FALTA'].sum()
-    acum, idx, tot, termino = 0.0, 0, 0, "Não finalizado"
+    acum, idx, tot = 0.0, 0, 0
+    
+    ultimo_minuto_produzido = None
 
     for p in range(len(pontos)-1):
         p1, p2 = para_min(pontos[p]), para_min(pontos[p+1])
         is_alm = (p1 == m_alm_i and p2 == m_alm_f)
         
         min_u = 0
+        minutos_uteis_reais = []
+        
         if not is_alm:
             for m in range(p1, p2):
                 if not ((m_cafe_m <= m < m_cafe_m+10) or 
@@ -105,41 +109,72 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups):
                         (m_alm_i <= m < m_alm_f) or 
                         (tem_gin and m_gin_i <= m < m_gin_f)):
                     min_u += 1
+                    minutos_uteis_reais.append(m)
         
-        acum += min_u
         p_h, m_n = 0, []
         
         if is_alm:
             res.append({'Horário': f"{pontos[p]} – {pontos[p+1]}", 'Modelos': "🍱 INTERVALO DE ALMOÇO", 'Peças': 0, 'Acum': int(tot)})
             continue
 
-        while idx < len(df_in):
-            t_pc = df_in.loc[idx, 'T_PC']
-            if acum >= (t_pc - 0.001):
-                q = min(math.floor(acum / t_pc + 0.001), df_in.loc[idx, 'FALTA'])
-                if q > 0:
-                    acum -= (q * t_pc)
-                    df_in.loc[idx, 'FALTA'] -= q
-                    tot += q; p_h += q
-                    m_n.append(f"{df_in.loc[idx, 'ID']} ({int(q)})")
-                if df_in.loc[idx, 'FALTA'] <= 0: idx += 1
-                else: break
-            else: break
-            
+        for m_util in minutos_uteis_reais:
+            acum += 1
+            while idx < len(df_in):
+                t_pc = df_in.loc[idx, 'T_PC']
+                if acum >= (t_pc - 0.001):
+                    acum -= t_pc
+                    df_in.loc[idx, 'FALTA'] -= 1
+                    tot += 1
+                    p_h += 1
+                    
+                    # Registra o minuto exato da última peça feita
+                    ultimo_minuto_produzido = m_util
+                    
+                    # Agrupamento visual para a tabela do Streamlit
+                    nome_mod = df_in.loc[idx, 'ID']
+                    if m_n and m_n[-1].startswith(nome_mod):
+                        qtd_ant = int(m_n[-1].split('(')[1].replace(')', ''))
+                        m_n[-1] = f"{nome_mod} ({qtd_ant + 1})"
+                    else:
+                        m_n.append(f"{nome_mod} (1)")
+                        
+                    if df_in.loc[idx, 'FALTA'] <= 0: 
+                        idx += 1
+                    else: 
+                        break
+                else:
+                    break
+            if idx >= len(df_in):
+                break
+                
         res.append({'Horário': f"{pontos[p]} – {pontos[p+1]}", 'Modelos': " + ".join(m_n) if m_n else "-", 'Peças': int(p_h), 'Acum': int(tot)})
-        
-        if tot >= total_ped and termino == "Não finalizado" and total_ped > 0:
-            sobra_min = min_u - acum
-            dt = datetime.strptime(pontos[p], "%H:%M") + timedelta(minutes=int(sobra_min))
-            termino = dt.strftime("%H:%M")
 
-    return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino}
+    # Determinação do Horário de Término Real
+    if total_ped == 0:
+        termino = "Sem demanda"
+    elif tot >= total_ped and ultimo_minuto_produzido is not None:
+        # Terminou tudo dentro do tempo
+        h_fim = ultimo_minuto_produzido // 60
+        m_fim = ultimo_minuto_produzido % 60
+        termino = f"{h_fim:02d}:{m_fim:02d}"
+    elif tot > 0 and ultimo_minuto_produzido is not None:
+        # Acabou o tempo da fábrica mas produziu alguma coisa
+        h_fim = ultimo_minuto_produzido // 60
+        m_fim = ultimo_minuto_produzido % 60
+        termino = f"{h_fim:02d}:{m_fim:02d} (Capacidade Máxima do Turno)"
+    else:
+        termino = "Não iniciado"
+
+    # Captura o que ficou faltando
+    faltantes = df_in[df_in['FALTA'] > 0][['ID', 'FALTA']].copy()
+    faltantes['FALTA'] = faltantes['FALTA'].astype(int)
+
+    return {'df': pd.DataFrame(res), 'tot': tot, 'termino': termino, 'faltantes': faltantes}
 
 # --- INTERFACE ---
 base = carregar_base()
 
 if not base.empty:
-    # --- ALTERAÇÃO SOLICITADA AQUI ---
     st.sidebar.markdown("### Tecnologia de Processos")
     st.sidebar.title("🏭 NHS Produção")
     
@@ -166,22 +201,33 @@ if not base.empty:
         
     df_ed = st.data_editor(pd.DataFrame(columns=["Equipamento", "Qtd"]), num_rows="dynamic", use_container_width=True,
                            column_config={"Equipamento": st.column_config.SelectboxColumn("Modelo", options=opcoes),
-                                         "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)})
+                                          "Qtd": st.column_config.NumberColumn("Qtd", min_value=1)})
 
     if st.button("🚀 Gerar Planejamento"):
         df_v = df_ed.dropna(subset=['Equipamento'])
         if not df_v.empty:
             r = calcular(df_v, base, h_ini, n_dia, tem_gin, sel_ups)
             st.divider()
+            
             c1, c2 = st.columns(2)
-            c1.metric("Total Planejado", f"{int(r['tot'])} pçs")
-            c2.metric("Término Estimado", r['termino'])
+            c1.metric("Total Produzido", f"{int(r['tot'])} pçs")
+            c2.metric("Horário da Última Peça", r['termino'])
+            
+            # --- SEÇÃO DE PENDÊNCIAS / O QUE FICOU FALTANDO ---
+            df_faltas = r['faltantes']
+            if not df_faltas.empty:
+                st.error(f"⚠️ Atenção: A meta total não foi atingida por falta de tempo útil.")
+                st.subheader("🛑 Itens Não Finalizados (Pendências)")
+                st.dataframe(df_faltas.rename(columns={'ID': 'Modelo Pendente', 'FALTA': 'Qtd Restante'}), use_container_width=True)
+            else:
+                st.success("🎉 Excelente! Toda a programação estimada será concluída dentro do horário.")
             
             def style_almoco(row):
                 if "ALMOÇO" in str(row["Modelos"]):
                     return ['background-color: #fff3cd'] * len(row)
                 return [''] * len(row)
 
+            st.subheader("📅 Cronograma Detalhado por Hora")
             st.dataframe(
                 r['df'].style.apply(style_almoco, axis=1),
                 use_container_width=True,
