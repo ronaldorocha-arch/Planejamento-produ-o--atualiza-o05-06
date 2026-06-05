@@ -105,7 +105,7 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
             fim_p = para_min(row["Fim"])
             motivo = str(row["Motivo"]).strip() if not pd.isna(row["Motivo"]) and str(row["Motivo"]).strip() != "" and str(row["Motivo"]).strip().lower() != "nan" else "PARADA"
             if ini_p != -1 and fim_p != -1 and fim_p > ini_p:
-                paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motivo.upper()})
+                paradas_customizadas.append({"ini": ini_p, "fim": fim_p, "motivo": motif.upper()})
 
     marcos_fixos = ["08:30","09:30","10:30","11:30","12:30","13:30","14:30","15:30","16:30","17:30"]
     marcos_min = [para_min(x) for x in marcos_fixos if para_min(x) > m_ini]
@@ -121,15 +121,16 @@ def calcular(df_in, df_ba, h_ini, n_dia, tem_gin, sel_ups, df_paradas):
     if m_ini not in pontos_min:
         pontos_min = [m_ini] + pontos_min
 
-    # --- CORREÇÃO DA SEQUÊNCIA CRÍTICA ---
-    # Criamos um índice numérico estrito da ordem exata em que digitou no ecrã
-    df_in["ORDEM_ESTRITA"] = range(len(df_in))
+    # --- TRAVA DE SEQUÊNCIA MÁXIMA ---
+    # Reseta o index do que foi digitado na tela para garantir o mapeamento 1:1 de cima para baixo
+    df_in = df_in.reset_index(drop=True)
+    df_in["ID_UNICO_PRODUCAO"] = range(len(df_in))
 
-    # Realiza o cruzamento trazendo as informações da base de dados
+    # Realiza o merge trazendo os dados da base
     df_in = df_in.merge(df_ba, left_on="Equipamento", right_on="DISPLAY", how="left")
     
-    # Força a reordenação exata baseada na ordem estrita definida por si, sem misturar linhas duplicadas
-    df_in = df_in.sort_values(by="ORDEM_ESTRITA").reset_index(drop=True)
+    # Força a ordenação de forma absoluta pela sequência criada antes do merge
+    df_in = df_in.sort_values(by="ID_UNICO_PRODUCAO").reset_index(drop=True)
 
     def cad_real(row):
         n_nom = MAPA_N_NATURAL.get(row["CEL_ORIGEM"], 5)
